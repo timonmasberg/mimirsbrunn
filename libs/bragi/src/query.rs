@@ -349,9 +349,13 @@ fn build_query<'a>(
         // When the match type is Prefix, we want to use every possible information even though
         // these are not present in label, for instance, the zip_code.
         // The field full_label contains all of them and will do the trick.
-        MatchType::Prefix => Query::build_match("full_label.prefix".to_string(), q.to_string())
-            .with_operator("and")
-            .build(),
+        // The query must at least match with elision activated, matching without elision will
+        // provide extra score bellow.
+        MatchType::Prefix => {
+            Query::build_match("full_label.prefix_elision".to_string(), q.to_string())
+                .with_operator("and")
+                .build()
+        }
         // for fuzzy search we lower our expectation & we accept a certain percentage of token match
         // on full_label.ngram
         // The values defined here are empirical,
