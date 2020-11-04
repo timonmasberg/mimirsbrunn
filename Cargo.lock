@@ -2939,7 +2939,7 @@ checksum = "d1a6eb3bd241993b09a354047bfba030778b347ac4de4bc0fd80e531e7cbfac8"
 [[package]]
 name = "rs-es"
 version = "0.12.2"
-source = "git+https://github.com/canaltp/rs-es#f029b406de0788c001a19f91602f83a38b8dc62c"
+source = "git+https://github.com/canaltp/rs-es?rev=f029b406#f029b406de0788c001a19f91602f83a38b8dc62c"
 dependencies = [
  "geojson",
  "log",
