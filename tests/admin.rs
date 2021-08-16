@@ -35,7 +35,7 @@ impl World for MyWorld {
 
 #[tokio::main]
 async fn main() {
-    let pool = connection_test_pool().await.unwrap();
+    let (pool, _) = connection_test_pool().await.unwrap();
 
     Cucumber::<MyWorld>::new()
         // Specifies where our feature files exist

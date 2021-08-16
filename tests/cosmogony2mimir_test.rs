@@ -28,25 +28,31 @@
 // https://groups.google.com/d/forum/navitia
 // www.navitia.io
 #![allow(clippy::cognitive_complexity)]
+use approx::assert_relative_eq;
 use cosmogony::ZoneType;
-use std::collections::BTreeMap;
+use places::Place;
 use std::f64;
 use std::path::Path;
+use tools::launch_and_assert;
 
 /// load a cosmogony file in mimir.
 /// The cosmogony file has been generated using the osm_fixture.osm.pbf file
-pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
+#[tokio::test]
+pub async fn cosmogony2mimir_test() {
+    let es_wrapper = tools::ElasticSearchWrapper::new().await;
+
     let cosmogony2mimir = Path::new(env!("OUT_DIR"))
         .join("../../../cosmogony2mimir")
         .display()
         .to_string();
-    crate::launch_and_assert(
+
+    launch_and_assert(
         &cosmogony2mimir,
         &[
             "--lang=fr".into(),
             "--lang=ru".into(),
             "--input=./tests/fixtures/cosmogony.json".into(),
-            format!("--connection-string={}", es_wrapper.host()),
+            format!("--connection-string={}", es_wrapper.connection_string()),
         ],
         &es_wrapper,
     );
@@ -54,7 +60,10 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
     // we should be able to find the imported admins
 
     // All results should be admins, and have some basic information
-    let all_objects: Vec<_> = es_wrapper.search_and_filter("label:*", |_| true).collect();
+    let all_objects: Vec<_> = es_wrapper
+        .search_and_filter("type:admin", |_| true)
+        .await
+        .collect();
     assert_eq!(all_objects.len(), 7);
 
     assert!(all_objects.iter().any(|r| r.is_admin()));
@@ -64,13 +73,14 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
 
     // check Livry-sur-Seine
     let res: Vec<_> = es_wrapper
-        .search_and_filter("label:Livry-sur-Seine", |_| true)
+        .search_and_filter("name:Livry-sur-Seine", |_| true)
+        .await
         .collect();
     assert!(!res.is_empty());
 
     let livry_sur_seine = &res[0];
     match *livry_sur_seine {
-        mimir::Place::Admin(ref livry_sur_seine) => {
+        Place::Admin(ref livry_sur_seine) => {
             assert_eq!(livry_sur_seine.id, "admin:osm:relation:215390");
             assert_eq!(livry_sur_seine.name, "Livry-sur-Seine");
             assert_eq!(
@@ -94,12 +104,13 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
     // check the state_district Fausse Seine-et-Marne
     let res: Vec<_> = es_wrapper
         .search_and_filter("name:Seine-et-Marne", |_| true)
+        .await
         .collect();
     assert!(!res.is_empty());
 
     let sem = &res[0];
     match *sem {
-        mimir::Place::Admin(ref sem) => {
+        Place::Admin(ref sem) => {
             assert_eq!(sem.name, "Fausse Seine-et-Marne");
             assert_eq!(sem.id, "admin:osm:relation:424253843");
             assert_eq!(sem.label, "Fausse Seine-et-Marne, France hexagonale");
@@ -121,12 +132,13 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
     // we can even get the whole france
     let res: Vec<_> = es_wrapper
         .search_and_filter("name:France", |_| true)
+        .await
         .collect();
     assert!(!res.is_empty());
 
     let fr = &res[0];
     match *fr {
-        mimir::Place::Admin(ref fr) => {
+        Place::Admin(ref fr) => {
             assert_eq!(fr.id, "admin:osm:relation:424256272");
             assert_eq!(fr.name, "France hexagonale");
             assert_eq!(fr.label, "France hexagonale");
@@ -134,10 +146,7 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
             assert_eq!(fr.level, 2);
             assert_eq!(fr.zip_codes, Vec::<String>::new());
             assert_eq!(
-                fr.codes
-                    .iter()
-                    .map(|c| (c.name.as_str(), c.value.as_str()))
-                    .collect::<BTreeMap<_, _>>(),
+                fr.codes,
                 vec![
                     ("ISO3166-1", "FR"),
                     ("ISO3166-1:alpha2", "FR"),
@@ -146,6 +155,7 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
                     ("wikidata", "Q142"),
                 ]
                 .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
                 .collect()
             );
             assert_relative_eq!(fr.weight, 0.045_050_245_714_285_72, epsilon = f64::EPSILON);
@@ -168,13 +178,14 @@ pub fn cosmogony2mimir_test(es_wrapper: crate::ElasticSearchWrapper<'_>) {
 
     // we check the weight is max on the admin with the highest population number
     let res: Vec<_> = es_wrapper
-        .search_and_filter("label:Melun", |_| true)
+        .search_and_filter("name:Melun", |_| true)
+        .await
         .collect();
     assert!(!res.is_empty());
 
     let fausse_seine_max_weight = &res[0];
     match *fausse_seine_max_weight {
-        mimir::Place::Admin(ref a) => {
+        Place::Admin(ref a) => {
             assert_eq!(a.id, "admin:osm:relation:80071");
             assert_relative_eq!(
                 a.weight,

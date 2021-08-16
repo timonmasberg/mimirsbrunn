@@ -1,122 +1,137 @@
-use docker_wrapper::*;
+use mimir2::adapters::secondary::elasticsearch::{remote, ElasticsearchStorage};
+use mimir2::domain::ports::remote::Remote;
+use mimir2::domain::ports::storage::Storage;
+use mimir2::utils::docker::{self, DockerWrapper};
 use serde_json::value::Value;
 use serde_json::Map;
 use slog_scope::info;
 use std::convert::TryFrom;
 use std::time::Duration;
 
-pub struct ElasticSearchWrapper<'a> {
-    pub docker_wrapper: &'a DockerWrapper,
-    pub rubber: mimir::rubber::Rubber,
+mod launch;
+pub use launch::launch_and_assert;
+
+pub struct ElasticSearchWrapper {
+    pub docker_wrapper: DockerWrapper,
+    pub storage: ElasticsearchStorage,
+    pub url: String,
 }
 
-impl<'a> ElasticSearchWrapper<'a> {
-    pub fn host(&self) -> String {
-        self.docker_wrapper.host()
+impl<'a> ElasticSearchWrapper {
+    pub async fn new() -> Self {
+        let docker = docker::initialize()
+            .await
+            .expect("Failed to initialize ES container");
+
+        let (pool, url) = remote::connection_test_pool()
+            .await
+            .expect("Elasticsearch Connection Pool");
+
+        let client = pool
+            .conn()
+            .await
+            .expect("Elasticsearch Connection Established");
+        Self {
+            storage: client,
+            docker_wrapper: docker,
+            url: url,
+        }
     }
 
-    pub fn init(&mut self) {
-        self.rubber.delete_index(&"_all".to_string()).unwrap();
+    pub fn connection_string(&self) -> &str {
+        &self.url
+    }
+
+    pub async fn init(&mut self) {
+        self.storage.delete_container("*".into()).await;
     }
 
     //    A way to watch if indexes are built might be curl http://localhost:9200/_stats
     //    then _all/total/segments/index_writer_memory_in_bytes( or version_map_memory_in_bytes)
     //    should be == 0 if indexes are ok (no refresh needed)
-    pub fn refresh(&self) {
+    pub async fn refresh(&self) {
         info!("Refreshing ES indexes");
 
-        let res = reqwest::blocking::Client::new()
-            .get(&format!("{}/_refresh", self.host()))
-            .send()
-            .unwrap();
-        assert!(
-            res.status() == reqwest::StatusCode::OK,
-            "Error ES refresh: {:?}",
-            res
-        );
-    }
-
-    pub fn new(docker_wrapper: &DockerWrapper) -> ElasticSearchWrapper<'_> {
-        let mut es_wrapper = ElasticSearchWrapper {
-            docker_wrapper,
-            rubber: mimir::rubber::Rubber::new(&docker_wrapper.host()),
-        };
-        es_wrapper.init();
-        es_wrapper
+        let res = self.storage.send_get("/_refresh").await;
+        assert!(res.is_ok(), "Error ES refresh: {:?}", res);
     }
 
     /// count the number of documents in the index
     /// If you want to count eg the number of POI, you would call
     /// es_wrapper.count("_type:POI")
-    pub fn count<'b, T: Into<Option<&'b str>>>(&self, index: T, word: &str) -> u64 {
+    pub async fn count<'b, T: Into<Option<&'b str>>>(&self, index: T, word: &str) -> u64 {
         let index = index.into().unwrap_or("munin");
         info!("counting documents with {}/_count?q={}", index, word);
         let res = self
-            .rubber
-            .get(&format!("{}/_count?q={}", index, word))
+            .storage
+            .send_get(&format!("/{}/_count?q={}", index, word))
+            .await
             .unwrap();
-        assert!(res.status() == reqwest::StatusCode::OK);
-        let json: serde_json::Value = res.json().unwrap();
+        assert_eq!(res.status_code(), 200);
+        let json: serde_json::Value = res.json().await.unwrap();
         json["count"].as_u64().unwrap()
     }
 
     /// simple search on a given index
     /// if no index is given, it assumes 'munin'
     /// assert that the result is OK and transform it to a json Value
-    pub fn search_on_index<'b, T: Into<Option<&'b str>>>(
+    pub async fn search_on_index<'b, T: Into<Option<&'b str>>>(
         &self,
         index: T,
         word: &str,
     ) -> serde_json::Value {
         let index = index.into().unwrap_or("munin");
         let res = self
-            .rubber
-            .get(&format!("{}/_search?q={}", index, word))
+            .storage
+            .send_get(&format!("/{}/_search?q={}", index, word))
+            .await
             .unwrap();
-        assert!(res.status() == reqwest::StatusCode::OK);
-        res.json().unwrap()
+        assert_eq!(res.status_code(), 200);
+        res.json().await.unwrap()
     }
 
     /// simple search on munin
     /// assert that the result is OK and transform it to a json Value
-    pub fn search(&self, word: &str) -> serde_json::Value {
-        self.search_on_index(None, word)
+    pub async fn search(&self, word: &str) -> serde_json::Value {
+        self.search_on_index(None, word).await
     }
 
-    pub fn search_on_global_stop_index(&self, word: &str) -> serde_json::Value {
-        self.search_on_index("munin_global_stops", word)
+    pub async fn search_on_global_stop_index(&self, word: &str) -> serde_json::Value {
+        self.search_on_index("munin_global_stops", word).await
     }
 
-    pub fn search_and_filter<'b, F>(
+    pub async fn search_and_filter<'b, F>(
         &self,
         word: &str,
         predicate: F,
-    ) -> impl Iterator<Item = mimir::Place> + 'b
+    ) -> impl Iterator<Item = places::Place> + 'b
     where
-        F: 'b + FnMut(&mimir::Place) -> bool,
+        F: 'b + FnMut(&places::Place) -> bool,
     {
         self.search_and_filter_on_index("munin", word, predicate)
+            .await
     }
 
-    pub fn search_and_filter_on_global_stop_index<'b, F>(
+    pub async fn search_and_filter_on_global_stop_index<'b, F>(
         &self,
         word: &str,
         predicate: F,
-    ) -> impl Iterator<Item = mimir::Place> + 'b
+    ) -> impl Iterator<Item = places::Place> + 'b
     where
-        F: 'b + FnMut(&mimir::Place) -> bool,
+        F: 'b + FnMut(&places::Place) -> bool,
     {
         self.search_and_filter_on_index("munin_global_stops", word, predicate)
+            .await
     }
 
-    pub fn search_and_filter_on_index<'b, 'c, T, F>(
+    pub async fn search_and_filter_on_index<'b, 'c, T, F>(
         &self,
         index: T,
         word: &str,
         predicate: F,
-    ) -> impl Iterator<Item = mimir::Place> + 'b
+    ) -> impl Iterator<Item = places::Place> + 'b
     where
-        F: 'b + FnMut(&mimir::Place) -> bool,
+        F: 'b + FnMut(&places::Place) -> bool,
         T: Into<Option<&'c str>>,
     {
         use serde_json::map::Entry;
@@ -134,35 +149,18 @@ impl<'a> ElasticSearchWrapper<'a> {
             })
         }
         let index = index.into().unwrap_or("munin");
-        let json = self.search_on_index(index, word);
-        get(json, "hits")
-            .and_then(|json| get(json, "hits"))
-            .and_then(|hits| match hits {
-                Value::Array(v) => Some(v),
-                _ => None,
-            })
-            .unwrap_or_else(Vec::default)
-            .into_iter()
-            .filter_map(|json| {
-                into_object(json).and_then(|obj| {
-                    let doc_type = obj
-                        .get("_type")
-                        .and_then(|doc_type| doc_type.as_str())
-                        .map(|doc_type| doc_type.into());
+        let mut json = self.search_on_index(index, word).await;
 
-                    doc_type.and_then(|doc_type| {
-                        // The real object is contained in the _source section.
-                        obj.get("_source").and_then(|src| {
-                            bragi::query_make_place(doc_type, Some(Box::new(src.clone())))
-                        })
-                    })
-                })
-            })
+        let array = json["hits"]["hits"].take().as_array().unwrap().to_vec();
+
+        array
+            .into_iter()
+            .map(|mut json| serde_json::from_value(json["_source"].take()).unwrap())
             .filter(predicate)
     }
 }
 
-pub struct BragiHandler {
+/*pub struct BragiHandler {
     app: actix_http_test::TestServerRuntime,
 }
 
@@ -299,3 +297,4 @@ fn url_encode(q: &str) -> String {
             .collect();
     q.replace("%3F", "?")
 }
+*/

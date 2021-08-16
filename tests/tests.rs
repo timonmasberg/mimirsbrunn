@@ -57,24 +57,7 @@ mod stops2mimir_test;
 use docker_wrapper::*;
 use serde_json::value::Value;
 use serde_json::Map;
-use std::process::Command;
 use tools::*;
-
-fn launch_and_assert(
-    cmd: &str,
-    args: &[std::string::String],
-    es_wrapper: &ElasticSearchWrapper<'_>,
-) {
-    let status = Command::new(cmd).args(args).status().unwrap();
-    assert!(
-        status.success(),
-        "`{}` with args {:?} failed with status {}",
-        cmd,
-        args,
-        &status
-    );
-    es_wrapper.refresh();
-}
 
 pub fn get_values<'a>(r: &'a [Map<String, Value>], val: &'a str) -> Vec<&'a str> {
     r.iter().map(|e| get_value(e, val)).collect()

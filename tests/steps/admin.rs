@@ -55,7 +55,7 @@ pub fn steps() -> Steps<crate::MyWorld> {
     steps.when_regex_async(
         "the user searches for \"(.*)\"",
         t!(|mut world, ctx| {
-            let pool = elasticsearch::remote::connection_test_pool().await.unwrap();
+            let (pool, _) = elasticsearch::remote::connection_test_pool().await.unwrap();
 
             let client = pool.conn().await.unwrap();
 
@@ -239,7 +239,7 @@ async fn generate_cosmogony(region: &str) -> Result<ProcessingStep, Error> {
 }
 
 async fn index_cosmogony(region: &str) -> Result<(), Error> {
-    let pool = connection_test_pool()
+    let (pool, _) = connection_test_pool()
         .await
         .context(ElasticsearchPoolError {
             details: String::from("Could not retrieve Elasticsearch test pool"),

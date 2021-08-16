@@ -66,7 +66,7 @@ mod example_steps {
             .when_regex_async(
                 "the user searches for \"(.*)\"",
                 t!(|mut world, matches, _step| {
-                    let pool = elasticsearch::remote::connection_test_pool().await.unwrap();
+                    let (pool, _url) = elasticsearch::remote::connection_test_pool().await.unwrap();
 
                     let client = pool.conn().await.unwrap();
 

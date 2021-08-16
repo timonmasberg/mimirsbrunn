@@ -66,9 +66,11 @@ pub async fn connection_pool() -> Result<SingleNodeConnectionPool, Error> {
 }
 
 /// Open a connection to a test elasticsearch
-pub async fn connection_test_pool() -> Result<SingleNodeConnectionPool, Error> {
+pub async fn connection_test_pool() -> Result<(SingleNodeConnectionPool, String), Error> {
     let url = std::env::var(ES_TEST_KEY).context(MissingEnvironmentVariable {
         key: String::from(ES_TEST_KEY),
     })?;
-    connection_pool_url(&url).await
+    connection_pool_url(&url)
+        .await
+        .map(|pool| (pool, url.clone()))
 }

@@ -15,7 +15,7 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let q = &args[0];
 
-    let pool = connection_test_pool()
+    let (pool, _) = connection_test_pool()
         .await
         .expect("Elasticsearch Connection Pool");
     let client = pool

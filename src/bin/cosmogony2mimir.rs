@@ -101,12 +101,13 @@ async fn index_cosmogony(args: Args) -> Result<(), Error> {
             )
         })?;
 
-    let mut settings = json!(settings);
+    let mut settings: serde_json::Value = serde_json::from_str(&settings)?;
+
     if let Some(nb_shards) = args.nb_shards {
-        settings["index"]["number_of_shards"] = json!(nb_shards);
+        settings["number_of_shards"] = json!(nb_shards);
     }
     if let Some(nb_replicas) = args.nb_replicas {
-        settings["index"]["number_of_replicas"] = json!(nb_replicas);
+        settings["number_of_replicas"] = json!(nb_replicas);
     }
 
     let mappings = tokio::fs::read_to_string(args.mappings.clone())
@@ -119,7 +120,7 @@ async fn index_cosmogony(args: Args) -> Result<(), Error> {
             )
         })?;
 
-    let mappings = json!(mappings);
+    let mappings = serde_json::from_str(&mappings)?;
 
     let config = IndexConfiguration {
         name: args.dataset.clone(),

@@ -25,16 +25,17 @@ lazy_static! {
 }
 
 // pub async fn initialize() -> Result<MutexGuard<'static, ()>, Error> {
-pub async fn initialize() -> Result<(), Error> {
+pub async fn initialize() -> Result<DockerWrapper, Error> {
     // let mtx = Arc::clone(&AVAILABLE);
     let mut docker = DockerWrapper::new();
     // let guard = AVAILABLE.lock().unwrap();
     let is_available = docker.is_container_available().await?;
     if !is_available {
-        docker.create_container().await
+        docker.create_container().await?;
     } else {
-        docker.cleanup().await
+        docker.cleanup().await?;
     }
+    Ok(docker)
 }
 
 #[derive(Debug, Snafu)]

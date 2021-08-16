@@ -1,5 +1,6 @@
 use elasticsearch::cat::CatIndicesParts;
 use elasticsearch::http::response::Exception;
+use elasticsearch::http::response::Response;
 use elasticsearch::indices::{
     IndicesCreateParts, IndicesDeleteAliasParts, IndicesDeleteParts, IndicesGetAliasParts,
     IndicesPutAliasParts, IndicesRefreshParts,
@@ -130,15 +131,6 @@ pub struct IndexConfiguration {
 pub struct IndexSettings {
     pub value: serde_json::Value,
 }
-
-// impl IndexSettings {
-//     fn into_value(self) -> serde_json::Value {
-//         let mut settings = self.base;
-//         settings["number_of_shards"] = json!(self.nb_shards);
-//         settings["number_of_replicas"] = json!(self.nb_replicas);
-//         json!(settings)
-//     }
-// }
 
 // FIXME A lot of work needs to go in there to type everything
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1286,6 +1278,23 @@ impl ElasticsearchStorage {
                 }),
             }
         }
+    }
+
+    pub async fn send_get(&self, path: &str) -> Result<Response, Error> {
+        use elasticsearch::http::{headers::HeaderMap, Method};
+        self.0
+            .send(
+                Method::Get,
+                &path,
+                HeaderMap::new(),
+                None as Option<&str>,
+                None as Option<String>,
+                None,
+            )
+            .await
+            .context(ElasticsearchError {
+                details: format!("Failed to send_get {}", &path),
+            })
     }
 }
 
